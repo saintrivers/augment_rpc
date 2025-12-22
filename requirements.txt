@@ -1,0 +1,5 @@
+carla==0.9.16
+matplotlib==3.10.8
+numpy==2.4.0
+pandas==2.3.3
+tqdm==4.67.1

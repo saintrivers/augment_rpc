@@ -1,0 +1,57 @@
+import os 
+import numpy as np
+import pandas as pd
+
+
+def load_radar_data(directory):
+    """Loads and sorts radar data from front, left, and right subdirectories."""
+    rpc = {}
+    all_frame_ids = set()
+
+    for sensor in ['front_center', 'front_left', 'front_right', 'back_left', 'back_right']:
+        path = os.path.join(directory, sensor)
+        if not os.path.isdir(path):
+            print(f"Warning: Directory not found at {path}")
+            rpc[sensor] = []
+            continue
+        
+        # Sort filenames numerically to ensure chronological order
+        filenames = sorted(
+            [f for f in os.listdir(path) if f.endswith('.npy')],
+            key=lambda f: int(os.path.splitext(f)[0])
+        )
+        rpc[sensor] = [np.load(os.path.join(path, filename)) for filename in filenames]
+        # Collect frame IDs from the filenames
+        all_frame_ids.update([int(os.path.splitext(f)[0]) for f in filenames])
+
+    return rpc, sorted(list(all_frame_ids))
+
+
+def load_imu_data(filepath, ego_id):
+    """
+    Loads IMU data for the specified ego vehicle and sets the frame_id as the index.
+    """
+    imu_df = pd.read_csv(filepath)
+    ego_imu_df = imu_df[imu_df['vehicle_id'] == ego_id].copy()
+    ego_imu_df.set_index('frame_id', inplace=True)
+    return ego_imu_df
+
+
+def load_and_prepare_data(datadir, ego_id):
+    """Loads vehicle data, isolates the ego trajectory, and gets frame list."""
+    # Construct file paths from arguments
+    csv_nearby_path = os.path.join(datadir, "nearby_vehicles.csv")
+    csv_all_path = os.path.join(datadir, "vehicle_coordinates.csv")
+
+    nearby_df = pd.read_csv(csv_nearby_path)
+    all_df = pd.read_csv(csv_all_path)
+
+    # Get the Ego's trajectory for every frame so we can center the camera
+    ego_traj = all_df[all_df["vehicle_id"] == ego_id].set_index("frame_id")[
+        ["x", "y", "yaw"]
+    ]
+
+    # Get a list of all unique frames to loop through
+    frames = sorted(nearby_df["frame_id"].unique())
+
+    return nearby_df, ego_traj, frames

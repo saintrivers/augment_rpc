@@ -1,0 +1,12 @@
+_output
+__pycache__
+tmp
+bak_*
+plots
+dataset
+ref
+.vscode
+*.egg-info
+todo.md
+**/pcap
+.idea
