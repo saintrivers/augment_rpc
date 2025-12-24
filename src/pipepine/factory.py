@@ -1,5 +1,5 @@
 from pipepine.core import ProcessingPipeline
-from processing.clustering import DbscanClusterer, FrameCluster, PointCloudPreprocessor
+from processing.clustering import ClusterAnalyzer, DbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
 from processing.radarproc import RpcReplay
 
 
@@ -24,7 +24,7 @@ class RpcProcessFactory:
         self.rpc_replay = rpc_replay
         self._memo = {}
 
-    def get_processed_frame(self, idx: int, eps: float, min_samples: int, velocity_weight: float) -> FrameCluster:
+    def get_processed_frame(self, idx: int, eps: float, min_samples: int, velocity_weight: float) -> tuple[list[RadarObject], FrameCluster]:
         """
         Computes or retrieves the clustering result for a specific frame.
 
@@ -47,7 +47,8 @@ class RpcProcessFactory:
         # Define the processing pipeline
         pipeline = ProcessingPipeline(
             PointCloudPreprocessor(velocity_weight=velocity_weight),
-            DbscanClusterer(eps=eps, min_samples=min_samples)
+            DbscanClusterer(eps=eps, min_samples=min_samples),
+            ClusterAnalyzer(rpc_frame=rpc_frame),
             # --- You can add more steps here! ---
             # e.g., BoundingBoxCalculator(), ClusterFilter(min_size=3)
         )

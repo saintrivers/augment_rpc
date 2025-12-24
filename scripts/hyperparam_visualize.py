@@ -3,12 +3,13 @@ import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from matplotlib.widgets import Slider
+
 from processing.datareader import load_radar_data, load_imu_data, load_radar_config
+from processing.radarproc import RpcReplay
 from pipepine.factory import RpcProcessFactory
 from omegaconf import OmegaConf
-from processing.radarproc import RpcReplay
-
 
 def init_plot(fig, view_radius):
     """Initializes a single 2D plot for visualizing clustered RPC data."""
@@ -107,7 +108,8 @@ def main():
         valinit=0, valstep=1
     )
 
-
+    box_patches = []
+    
     # --- Update Functions ---
     def update(val):
         """This function is called by any slider to reload data and redraw the plot."""
@@ -122,12 +124,47 @@ def main():
             update.last_frame_id = idx
 
         # --- B. Clustering ---
-        processed_frame = processing_factory.get_processed_frame(
+        moving_centroids, processed_frame = processing_factory.get_processed_frame(
             idx=idx,
             eps=slider_eps.val,
             min_samples=slider_min_samples.val,
             velocity_weight=slider_vel_weight.val
         )
+        # --- C. Update Bounding Boxes ---
+        # 1. Remove old boxes
+        for p in box_patches:
+            p.remove()
+        box_patches.clear()
+        
+        # 2. Draw new boxes
+        # Assuming processed_frame.moving_centroids contains your list of RadarObjects
+        if hasattr(moving_centroids, 'moving_centroids'):
+            for obj in moving_centroids:
+                # Transform Radar coordinates (x, y) to Plot coordinates (-y, x)
+                # Radar x (Forward) -> Plot y
+                # Radar y (Left/Right) -> Plot x (inverted)
+                
+                # Calculate dimensions
+                # obj.size is (dim_x, dim_y, dim_z)
+                radar_len = obj.size[0]  # along radar x
+                radar_width = obj.size[1] # along radar y
+                
+                # Plot dimensions (width corresponds to radar y, height to radar x)
+                plot_width = radar_width
+                plot_height = radar_len
+
+                # Calculate Bottom-Left Corner for the Rectangle
+                # Center in plot coords: (-obj.centroid[1], obj.centroid[0])
+                plot_x = -obj.centroid[1] - (plot_width / 2)
+                plot_y = obj.centroid[0] - (plot_height / 2)
+
+                # Create and add the patch
+                rect = Rectangle(
+                    (plot_x, plot_y), plot_width, plot_height,
+                    linewidth=2, edgecolor='lime', facecolor='none'
+                )
+                ax.add_patch(rect)
+                box_patches.append(rect)
 
         # Plot noise points
         # 1 is y, 0 is x because I want the X (front facing) to point up
