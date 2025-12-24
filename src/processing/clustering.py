@@ -21,56 +21,56 @@ class FrameCluster:
         self.cluster_mask = cluster_mask
 
 
-class RpcClustering:
+class RpcClusterFactory:
     """
     A class that applies DBSCAN clustering to a RpcReplay object.
 
     This class acts as a factory for FrameCluster objects. It is initialized with
-    the clustering hyperparameters and the full radar data replay. When indexed,
-    it computes (and memos) the clustering result for the requested frame.
+    the full radar data replay. When called, it computes (and memos) the
+    clustering result for the requested frame and hyperparameters.
     """
-    memo = {}
-
-    def __init__(self, rpc_replay: RpcReplay, eps: float, min_samples: int, velocity_weight: float):
+    def __init__(self, rpc_replay: RpcReplay):
         """
-        Initializes the RpcCluster with data and clustering parameters.
+        Initializes the RpcClusterFactory with data.
 
         Args:
             rpc_replay (RpcReplay): The pre-processed radar data sequence.
-            eps (float): The maximum distance between two samples for one to be 
-                        considered as in the neighborhood of the other (DBSCAN `eps`).
-            min_samples (int): The number of samples in a neighborhood for a point
-                                to be considered as a core point (DBSCAN `min_samples`).
-            velocity_weight (float): A multiplier applied to the velocity dimension to
-                                    adjust its influence on clustering distance.
         """
-        self.eps = eps
-        self.min_samples = min_samples
-        self.velocity_weight = velocity_weight
         self.rpc_replay = rpc_replay
+        self._memo = {}
 
-    def __getitem__(self, idx: int) -> FrameCluster:
+    def get_cluster(self, idx: int, eps: float, min_samples: int, velocity_weight: float) -> FrameCluster:
         """
         Computes or retrieves the clustering result for a specific frame.
 
         Args:
             idx (int): The index of the frame to cluster.
+            eps (float): The DBSCAN `eps` parameter.
+            min_samples (int): The DBSCAN `min_samples` parameter.
+            velocity_weight (float): The weight for the velocity dimension.
 
         Returns:
             FrameCluster: An object containing the clustering results for the frame.
         """
-        if idx in self.memo:
-            return self.memo[idx]
+        # Create a key that uniquely identifies this clustering request
+        cache_key = (idx, eps, min_samples, velocity_weight)
+        if cache_key in self._memo:
+            return self._memo[cache_key]
 
         rpc_frame = self.rpc_replay[idx]
 
-        point_cloud_4d = np.column_stack((rpc_frame.x, rpc_frame.y, rpc_frame.z, np.multiply(rpc_frame.velocities, self.velocity_weight)))
-        model = DBSCAN(eps=self.eps, min_samples=self.min_samples)
+        point_cloud_4d = np.column_stack((
+            np.multiply(rpc_frame.x, 1), 
+            np.multiply(rpc_frame.y, 1), 
+            np.multiply(rpc_frame.z, 1), 
+            np.multiply(rpc_frame.velocities, velocity_weight)
+        ))
+        model = DBSCAN(eps=eps, min_samples=min_samples)
         model.fit(point_cloud_4d)
 
         noise_mask = model.labels_ == -1
         cluster_mask = ~noise_mask
         
         cluster = FrameCluster(point_cloud_4d, model.labels_, noise_mask, cluster_mask)
-        self.memo[idx] = cluster
+        self._memo[cache_key] = cluster
         return cluster

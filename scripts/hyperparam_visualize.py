@@ -4,27 +4,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
-from processing.clustering import RpcClustering
+from processing.clustering import RpcClusterFactory
 from processing.datareader import load_radar_data, load_imu_data, load_radar_config
-from processing.radarproc import collect_transformed_rpc
 from omegaconf import OmegaConf
-from sklearn.cluster import DBSCAN
 from processing.radarproc import RpcReplay
-
-
-def cluster_points_dbscan(xs, ys, zs, velocities, epsilon, min_samples, velocity_weight):
-    """
-    Performs DBSCAN clustering on a 4D point cloud (x, y, z, velocity).
-
-    Returns:
-        DBSCAN: The fitted DBSCAN model instance.
-    """
-    # Create a 4D array for clustering: (x, y, z, weighted_velocity)
-    point_cloud = np.column_stack((xs, ys, zs, np.multiply(velocities, velocity_weight)))
-
-    model = DBSCAN(eps=epsilon, min_samples=min_samples)
-    model.fit(point_cloud)
-    return model
 
 
 def init_plot(fig, view_radius):
@@ -55,7 +38,7 @@ def init_plot(fig, view_radius):
     return ax, cluster_scatter, noise_scatter, ego_point, frame_text, stats_text
 
 
-def load_experiment_data(datadir: str, ego_id: int) -> RpcReplay:
+def prepare_experiment_data(datadir: str, ego_id: int) -> RpcReplay:
     """
     Loads rpc data structure designed for easy fetching and indexing of recorded simulation data.
     
@@ -69,23 +52,6 @@ def load_experiment_data(datadir: str, ego_id: int) -> RpcReplay:
     sensor_transforms = load_radar_config(datadir)
     rpc_replay = RpcReplay(rpc, frame_ids, sensor_transforms, imu_df)
     return rpc_replay
-
-
-def generate_clustering_mask(vel_weight, epsilon, min_samples, **current_frame_data):
-    """
-    Docstring for generate_clustering_mask
-
-    """
-    model = cluster_points_dbscan(
-        epsilon=epsilon,
-        min_samples=min_samples, 
-        velocity_weight=vel_weight, 
-        **current_frame_data
-    )
-    noise_label = -1
-    point_cloud = np.column_stack((current_frame_data['xs'], current_frame_data['ys']))
-    noise_mask = model.labels_ == noise_label
-    cluster_mask = ~noise_mask
 
 
 def main():
@@ -103,7 +69,10 @@ def main():
     config = OmegaConf.create(conf_yaml)
 
     # --- Data Loading ---
-    rpc_replay = load_experiment_data(config.sim.datadir, config.sim.ego_id)
+    rpc_replay = prepare_experiment_data(config.sim.datadir, config.sim.ego_id)
+
+    # --- Clustering Factory ---
+    cluster_factory = RpcClusterFactory(rpc_replay)
 
     # --- Visualization ---
     fig = plt.figure(figsize=(12, 12))
@@ -138,17 +107,8 @@ def main():
         valinit=0, valstep=1
     )
 
-    # --- State for update function ---
-    # These variables will hold the data for the currently selected frame
-    current_frame_data = {
-        'xs': [], 'ys': [], 'zs': [], 'velocities': []
-    }
-
-    # Create a mapping from frame_id to list index for quick lookups
-    # frame_id_to_idx = {fid: i for i, fid in enumerate(frame_ids)}
 
     # --- Update Functions ---
-
     def update(val):
         """This function is called by any slider to reload data and redraw the plot."""
         idx = int(slider_frame.val)
@@ -157,18 +117,17 @@ def main():
         # --- A. Data Loading and Processing ---
         # Only reload data if the frame has changed
         if idx != getattr(update, "last_frame_id", None):            
-            frame_rpc = rpc_replay[idx]
-            current_frame_data.update({'xs': frame_rpc.x, 'ys': frame_rpc.y, 'zs': frame_rpc.z, 'velocities': frame_rpc.velocities})
+            # frame_rpc = rpc_replay[idx]
+            # current_frame_data.update({'xs': frame_rpc.x, 'ys': frame_rpc.y, 'zs': frame_rpc.z, 'velocities': frame_rpc.velocities})
             update.last_frame_id = idx
 
         # --- B. Clustering ---
-        clustering = RpcClustering(
-            rpc_replay=rpc_replay,
+        cluster = cluster_factory.get_cluster(
+            idx=idx,
             eps=slider_eps.val,
             min_samples=slider_min_samples.val,
             velocity_weight=slider_vel_weight.val
         )
-        cluster = clustering[idx]
 
         # Plot noise points
         # 1 is y, 0 is x because I want the X (front facing) to point up
