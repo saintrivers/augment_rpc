@@ -1,7 +1,31 @@
-from sklearn.cluster import DBSCAN
 import numpy as np
+from sklearn.cluster import DBSCAN
+from pipepine.core import ProcessingStep
+from processing.radarproc import RpcFrame
 
-from processing.radarproc import RpcReplay
+
+class PointCloudPreprocessor(ProcessingStep):
+    """
+    A pre-processing step that prepares the 4D point cloud for clustering.
+    Currently, this step applies a weight to the velocity dimension.
+    """
+    def __init__(self, velocity_weight: float):
+        self.velocity_weight = velocity_weight
+
+    def __call__(self, rpc_frame: RpcFrame) -> np.ndarray:
+        """
+        Args:
+            rpc_frame (RpcFrame): The input radar frame data.
+
+        Returns:
+            np.ndarray: A (N, 4) numpy array with weighted velocity.
+        """
+        return np.column_stack((
+            rpc_frame.x,
+            rpc_frame.y,
+            rpc_frame.z,
+            np.multiply(rpc_frame.velocities, self.velocity_weight)
+        ))
 
 
 class FrameCluster:
@@ -21,56 +45,26 @@ class FrameCluster:
         self.cluster_mask = cluster_mask
 
 
-class RpcClusterFactory:
+class DbscanClusterer(ProcessingStep):
     """
-    A class that applies DBSCAN clustering to a RpcReplay object.
-
-    This class acts as a factory for FrameCluster objects. It is initialized with
-    the full radar data replay. When called, it computes (and memos) the
-    clustering result for the requested frame and hyperparameters.
+    A processing step that performs DBSCAN clustering on a point cloud.
     """
-    def __init__(self, rpc_replay: RpcReplay):
-        """
-        Initializes the RpcClusterFactory with data.
+    def __init__(self, eps: float, min_samples: int):
+        self.eps = eps
+        self.min_samples = min_samples
 
+    def __call__(self, point_cloud_4d: np.ndarray) -> FrameCluster:
+        """
         Args:
-            rpc_replay (RpcReplay): The pre-processed radar data sequence.
-        """
-        self.rpc_replay = rpc_replay
-        self._memo = {}
-
-    def get_cluster(self, idx: int, eps: float, min_samples: int, velocity_weight: float) -> FrameCluster:
-        """
-        Computes or retrieves the clustering result for a specific frame.
-
-        Args:
-            idx (int): The index of the frame to cluster.
-            eps (float): The DBSCAN `eps` parameter.
-            min_samples (int): The DBSCAN `min_samples` parameter.
-            velocity_weight (float): The weight for the velocity dimension.
+            point_cloud_4d (np.ndarray): The (N, 4) input point cloud.
 
         Returns:
-            FrameCluster: An object containing the clustering results for the frame.
+            FrameCluster: The result of the clustering.
         """
-        # Create a key that uniquely identifies this clustering request
-        cache_key = (idx, eps, min_samples, velocity_weight)
-        if cache_key in self._memo:
-            return self._memo[cache_key]
-
-        rpc_frame = self.rpc_replay[idx]
-
-        point_cloud_4d = np.column_stack((
-            np.multiply(rpc_frame.x, 1), 
-            np.multiply(rpc_frame.y, 1), 
-            np.multiply(rpc_frame.z, 1), 
-            np.multiply(rpc_frame.velocities, velocity_weight)
-        ))
-        model = DBSCAN(eps=eps, min_samples=min_samples)
+        model = DBSCAN(eps=self.eps, min_samples=self.min_samples)
         model.fit(point_cloud_4d)
 
         noise_mask = model.labels_ == -1
         cluster_mask = ~noise_mask
         
-        cluster = FrameCluster(point_cloud_4d, model.labels_, noise_mask, cluster_mask)
-        self._memo[cache_key] = cluster
-        return cluster
+        return FrameCluster(point_cloud_4d, model.labels_, noise_mask, cluster_mask)

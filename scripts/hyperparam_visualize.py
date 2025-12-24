@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
-from processing.clustering import RpcClusterFactory
 from processing.datareader import load_radar_data, load_imu_data, load_radar_config
+from pipepine.factory import RpcProcessFactory
 from omegaconf import OmegaConf
 from processing.radarproc import RpcReplay
 
@@ -72,7 +72,7 @@ def main():
     rpc_replay = prepare_experiment_data(config.sim.datadir, config.sim.ego_id)
 
     # --- Clustering Factory ---
-    cluster_factory = RpcClusterFactory(rpc_replay)
+    processing_factory = RpcProcessFactory(rpc_replay)
 
     # --- Visualization ---
     fig = plt.figure(figsize=(12, 12))
@@ -122,7 +122,7 @@ def main():
             update.last_frame_id = idx
 
         # --- B. Clustering ---
-        cluster = cluster_factory.get_cluster(
+        processed_frame = processing_factory.get_processed_frame(
             idx=idx,
             eps=slider_eps.val,
             min_samples=slider_min_samples.val,
@@ -131,18 +131,30 @@ def main():
 
         # Plot noise points
         # 1 is y, 0 is x because I want the X (front facing) to point up
-        noise_scatter.set_offsets(np.column_stack([-cluster.point_cloud[cluster.noise_mask, 1], cluster.point_cloud[cluster.noise_mask,0]])) 
+        noise_scatter.set_offsets(
+            np.column_stack([
+                -processed_frame.point_cloud[processed_frame.noise_mask, 1], 
+                processed_frame.point_cloud[processed_frame.noise_mask,0]
+                ])
+            ) 
         
         # Plot clustered points
-        if np.any(cluster.cluster_mask):
-            cluster_scatter.set_offsets(np.column_stack([-cluster.point_cloud[cluster.cluster_mask, 1], cluster.point_cloud[cluster.cluster_mask, 0]]))
-            cluster_scatter.set_array(cluster.labels[cluster.cluster_mask])
+        if np.any(processed_frame.cluster_mask):
+            cluster_scatter.set_offsets(
+                np.column_stack([
+                    -processed_frame.point_cloud[processed_frame.cluster_mask, 1], 
+                    processed_frame.point_cloud[processed_frame.cluster_mask, 0]
+                    ])
+                )
+            cluster_scatter.set_array(
+                processed_frame.labels[processed_frame.cluster_mask]
+                )
         else:
             cluster_scatter.set_offsets(np.empty((0, 2)))
 
         frame_text.set_text(f'Frame ID: {idx}')
-        num_clusters = len(set(cluster.labels)) - (1 if -1 in cluster.labels else 0)
-        stats_text.set_text(f'Clusters: {num_clusters}\nNoise Pts: {np.sum(cluster.noise_mask)}')
+        num_clusters = len(set(processed_frame.labels)) - (1 if -1 in processed_frame.labels else 0)
+        stats_text.set_text(f'Clusters: {num_clusters}\nNoise Pts: {np.sum(processed_frame.noise_mask)}')
         fig.canvas.draw_idle()
 
     # Register the update function to be called on slider changes
