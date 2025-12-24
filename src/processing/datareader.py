@@ -1,6 +1,24 @@
+import json
 import os 
 import numpy as np
 import pandas as pd
+
+
+def load_radar_config(directory):
+    """Loads radar transform and rotation configuration from a JSON file."""
+    sensor_config = {}
+    sensor_transforms = {}
+
+    with open(os.path.join(directory, "radar_config.json"), 'r') as f:
+        sensor_config = json.load(f)
+
+    for name, _sensor_conf in sensor_config['sensors'].items():
+        t = _sensor_conf['transform']
+        sensor_transforms[name] = {
+            'pos': np.array([t['x'], t['y'], t['z']]),
+            'yaw_deg': t['yaw_deg']
+        }
+    return sensor_transforms
 
 
 def load_radar_data(directory):
@@ -37,7 +55,7 @@ def load_imu_data(filepath, ego_id):
     return ego_imu_df
 
 
-def load_and_prepare_data(datadir, ego_id):
+def load_gt(datadir, ego_id):
     """Loads vehicle data, isolates the ego trajectory, and gets frame list."""
     # Construct file paths from arguments
     csv_nearby_path = os.path.join(datadir, "nearby_vehicles.csv")

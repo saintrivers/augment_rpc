@@ -1,5 +1,5 @@
 import numpy as np
-
+import pandas as pd
 
 def spherical_to_cartesian(points):
     """
@@ -47,6 +47,23 @@ def transform_sensor_points(points_batch, sensor_transform):
 
 
 def estimate_ego_velocity(points_batch, ego_gyro):
+    """
+    Estimates the ego vehicle's translational velocity using radar point data.
+
+    This function solves a robust least-squares problem to find the ego
+    velocity that best explains the observed Doppler velocities, after compensating
+    for the velocity component induced by the ego vehicle's own rotation.
+
+    The underlying equation is: v_doppler = v_rot_los - v_ego_los
+
+    Args:
+        points_batch (tuple): A tuple of (x, y, z, raw_velocities) numpy arrays.
+                                Positions are in the vehicle frame.
+        ego_gyro (np.array): The ego vehicle's gyroscope data [x, y, z] in rad/s.
+
+    Returns:
+        np.array: The estimated ego velocity vector [vx, vy, vz] in m/s.
+    """
     x, y, z, raw_velocities = points_batch
 
     r = np.stack((x, y, z), axis=-1)
@@ -132,11 +149,31 @@ def correct_velocities_for_ego_motion(points_batch, ego_gyro):
     # Dot product of v_rot and unit_vector gives the component of rotational velocity along the line of sight
     # We use einsum for a vectorized dot product: sum(A[i,j] * B[i,j]) over j for each i
     v_correction = np.einsum('ij,ij->i', velocity_from_rotation, unit_vectors)
-  
+
     return raw_velocities - v_correction
 
-
 def collect_transformed_rpc(rpc, frame_idx: int, sensor_transforms: dict, ego_imu_record: dict = None):
+    """
+    Collects, transforms, and corrects radar points from all sensors for a single frame.
+
+    This function iterates through all available sensors for a given frame index,
+    performs the following steps for each sensor's data:
+    1. Converts radar points from spherical to Cartesian coordinates.
+    2. Transforms points from the sensor's local frame to the ego vehicle's frame.
+    3. If IMU data is provided, corrects the Doppler velocities for the ego's
+        rotational and translational motion.
+    4. Aggregates the processed points from all sensors into a single point cloud.
+
+    Args:
+        rpc (dict): The raw radar point cloud data, keyed by sensor name.
+        frame_idx (int): The index of the frame to process.
+        sensor_transforms (dict): A dictionary containing the position and yaw for each sensor.
+        ego_imu_record (dict, optional): A dictionary-like object with the ego vehicle's
+                                            IMU data for this frame. Defaults to None.
+
+    Returns:
+        tuple: A tuple of lists (xs, ys, zs, velocities) for the aggregated point cloud.
+    """
     xs, ys, zs, velocities = [], [], [], []
         
     for sensor_name, transform_info in sensor_transforms.items():
@@ -202,3 +239,78 @@ def process_rpc_frame(rpc_frame: dict, sensor_transforms: dict, ego_imu_record: 
             velocities.extend(corrected_velocities)
 
     return xs, ys, zs, velocities
+
+class RpcFrame:
+    """
+    A data class to hold the processed radar point cloud for a single frame.
+
+    Attributes:
+        x (np.ndarray): Array of X-coordinates in the vehicle frame (forward).
+        y (np.ndarray): Array of Y-coordinates in the vehicle frame (right).
+        z (np.ndarray): Array of Z-coordinates in the vehicle frame (up).
+        velocities (np.ndarray): Array of corrected Doppler velocities for each point.
+    """
+    def __init__(self, x: list[float], y: list[float], z: list[float], velocity: list[float]):
+        self.x = np.array(x)
+        self.y = np.array(y)
+        self.z = np.array(z)
+        self.velocities = np.array(velocity)
+
+
+class RpcReplay:
+    """
+    Pre-processes and stores an entire sequence of radar data for easy replay.
+
+    This class loads all radar frames from a simulation, processes them into the
+    ego vehicle's coordinate frame, corrects for ego motion, and stores them
+    in memory indexed by a continuous frame sequence.
+
+    Attributes:
+        xs (list[list[float]]): List of X-coordinates for each frame.
+        ys (list[list[float]]): List of Y-coordinates for each frame.
+        zs (list[list[float]]): List of Z-coordinates for each frame.
+        velocities (list[list[float]]): List of corrected velocities for each frame.
+    """
+    def _reindex(self, frame_ids: list[int]) -> list[int]:
+        """
+        Creates a continuous range of frame indices from the start to the end of a simulation.
+        Assumes the input frame_ids list is sorted.
+        """
+        self.sim_length_steps = frame_ids[-1] - frame_ids[0]
+        return range(0, self.sim_length_steps+1)
+
+    def __init__(self, rpc: dict, frame_ids: list[int], sensor_transforms: dict, imu_df: 'pd.DataFrame'):
+        """
+        Initializes the RpcReplay object by processing all radar frames.
+
+        Args:
+            rpc (dict): Raw radar data, keyed by sensor name.
+            frame_ids (list[int]): A sorted list of all frame IDs in the simulation.
+            sensor_transforms (dict): Configuration for sensor positions and orientations.
+            imu_df (pd.DataFrame): A DataFrame containing IMU data for the ego vehicle, indexed by frame_id.
+        """
+        self.xs, self.ys, self.zs, self.velocities = [], [], [], []
+        indices = self._reindex(frame_ids)
+
+        for idx in indices: 
+            try:
+                imu_record = imu_df.loc[idx].to_dict()
+            except KeyError:
+                imu_record = None # No IMU data for this frame
+            x, y, z, v = collect_transformed_rpc(rpc, idx, sensor_transforms, imu_record)
+            x = np.array(x); y = np.array(y); z = np.array(z); v = np.array(v)
+            self.xs.append(x); self.ys.append(y); self.zs.append(z); self.velocities.append(v)
+    
+    def __getitem__(self, idx: int) -> RpcFrame:
+        """
+        Makes the class indexable, retrieving the processed point cloud for a
+        specific frame by its ordinal index (e.g., `replay[0]`).
+
+        Args:
+            idx (int): The zero-based index of the frame to retrieve.
+
+        Returns:
+            A tuple containing (xs, ys, zs, velocities) for the requested frame.
+        """
+        # return self.xs[idx], self.ys[idx], self.zs[idx], self.velocities[idx]
+        return RpcFrame(self.xs[idx], self.ys[idx], self.zs[idx], self.velocities[idx])
