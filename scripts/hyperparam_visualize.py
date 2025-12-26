@@ -59,7 +59,8 @@ def main():
     """Main function to run the hyperparameter visualization."""
     conf_yaml = """
     sim:
-        datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/dataset/town3_4"
+        _datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/dataset/town3_4"
+        datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/_output"
         ego_id: 51
     dbscan:
         velocity_weight: 1.0 # Not used by MdDbscan, but we'll leave it for now
