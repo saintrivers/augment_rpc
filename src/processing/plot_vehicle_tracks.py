@@ -1,11 +1,10 @@
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import matplotlib.cm as cm
-import numpy as np
 import argparse
 
-def update_plot_for_frame(frame_id, df, ego_id, other_vehicles_scatter, ego_point, frame_text):
+from processing.groundtruth import GroundTruthReplay
+
+def update_plot_for_frame(frame_id, gt_replay, other_vehicles_scatter, ego_point, frame_text):
     """
     Updates the scatter plots and text elements for a given animation frame.
 
@@ -17,17 +16,13 @@ def update_plot_for_frame(frame_id, df, ego_id, other_vehicles_scatter, ego_poin
         ego_point (matplotlib.lines.Line2D): Plot object for the ego vehicle.
         frame_text (matplotlib.text.Text): Text object for displaying the frame ID.
     """
-    # Select all vehicles in the current frame
-    frame_data = df.loc[df.index == frame_id]
-
-    # Get data for ego and other vehicles
-    ego_vehicle_data = frame_data[frame_data['vehicle_id'] == ego_id]
-    other_vehicles_data = frame_data[frame_data['vehicle_id'] != ego_id]
+    # Use the replay object to get structured data for the frame
+    gt_frame = gt_replay.get_frame_data(frame_id)
 
     # Update plot elements
-    other_vehicles_scatter.set_offsets(other_vehicles_data[['x', 'y']].values)
-    if not ego_vehicle_data.empty:
-        ego_point.set_data(ego_vehicle_data[['x', 'y']].values.T)
+    other_vehicles_scatter.set_offsets(gt_frame.other_vehicles[['x', 'y']].values)
+    if not gt_frame.ego_vehicle.empty:
+        ego_point.set_data(gt_frame.ego_vehicle[['x', 'y']].values.T)
     else:
         ego_point.set_data([], [])
     frame_text.set_text(f'Frame ID: {frame_id}')
@@ -41,17 +36,13 @@ def animate_vehicle_tracks(csv_path: str, ego_id: int):
         csv_path (str): The full path to the vehicle_coordinates.csv file.
         ego_id (int): The vehicle ID to highlight in red.
     """
-    # Load the dataset
-    try:
-        df = pd.read_csv(csv_path, index_col='frame_id')
-    except FileNotFoundError:
-        print(f"Error: The file was not found at {csv_path}")
-        return
+    # --- Data Handling is now decoupled ---
+    gt_replay = GroundTruthReplay(csv_path, ego_id)
 
     # --- Animation Setup ---
     fig, ax = plt.subplots(figsize=(12, 12))
 
-    # Determine plot limits from the entire dataset to keep the view static and centered
+    df = gt_replay.df # Get the dataframe for calculating limits
     max_abs_coord = max(df['x'].abs().max(), df['y'].abs().max())
     plot_limit = max_abs_coord + 20  # Add a 20-meter buffer
     ax.set_xlim(-plot_limit, plot_limit)
@@ -69,11 +60,11 @@ def animate_vehicle_tracks(csv_path: str, ego_id: int):
     ax.grid(True)
 
     # Get the range of frames for the animation, ensuring we only use frames present in the data
-    available_frames = sorted(df.index.unique())
+    available_frames = gt_replay.frames
 
     def update(frame_id):
         """The function that updates the plot for each animation frame."""
-        update_plot_for_frame(frame_id, df, ego_id, other_vehicles_scatter, ego_point, frame_text)
+        update_plot_for_frame(frame_id, gt_replay, other_vehicles_scatter, ego_point, frame_text)
         return other_vehicles_scatter, ego_point, frame_text
 
     # Create and run the animation
