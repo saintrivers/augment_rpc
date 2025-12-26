@@ -1,5 +1,5 @@
 from pipepine.core import ProcessingPipeline
-from processing.clustering import ClusterAnalyzer, DbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
+from processing.clustering import ClusterAnalyzer, DbscanClusterer, MdDbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
 from processing.radarproc import RpcReplay
 
 
@@ -24,13 +24,14 @@ class RpcProcessFactory:
         self.rpc_replay = rpc_replay
         self._memo = {}
 
-    def get_processed_frame(self, idx: int, eps: float, min_samples: int, velocity_weight: float) -> tuple[list[RadarObject], FrameCluster]:
+    def get_processed_frame(self, idx: int, spatial_eps: float, velocity_eps: float, min_samples: int, velocity_weight: float) -> tuple[list[RadarObject], FrameCluster]:
         """
         Computes or retrieves the clustering result for a specific frame.
 
         Args:
             idx (int): The index of the frame to cluster.
-            eps (float): The DBSCAN `eps` parameter.
+            spatial_eps (float): The spatial distance tolerance for clustering (meters).
+            velocity_eps (float): The velocity tolerance for clustering (m/s).
             min_samples (int): The DBSCAN `min_samples` parameter.
             velocity_weight (float): The weight for the velocity dimension.
 
@@ -38,7 +39,7 @@ class RpcProcessFactory:
             FrameCluster: An object containing the clustering results for the frame.
         """
         # Create a key that uniquely identifies this clustering request
-        cache_key = (idx, eps, min_samples, velocity_weight)
+        cache_key = (idx, spatial_eps, velocity_eps, min_samples, velocity_weight)
         if cache_key in self._memo:
             return self._memo[cache_key]
 
@@ -46,8 +47,8 @@ class RpcProcessFactory:
 
         # Define the processing pipeline
         pipeline = ProcessingPipeline(
-            PointCloudPreprocessor(velocity_weight=velocity_weight),
-            DbscanClusterer(eps=eps, min_samples=min_samples),
+            PointCloudPreprocessor(velocity_weight=velocity_weight), # This step is still needed by MdDbscanClusterer
+            MdDbscanClusterer(spatial_eps=spatial_eps, velocity_eps=velocity_eps, min_samples=min_samples),
             ClusterAnalyzer(rpc_frame=rpc_frame),
             # --- You can add more steps here! ---
             # e.g., BoundingBoxCalculator(), ClusterFilter(min_size=3)

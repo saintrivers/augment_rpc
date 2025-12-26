@@ -62,9 +62,10 @@ def main():
         datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/dataset/town3_4"
         ego_id: 51
     dbscan:
-        velocity_weight: 5.0
-        epsilon: 0.5
-        min_samples: 2
+        velocity_weight: 1.0 # Not used by MdDbscan, but we'll leave it for now
+        spatial_epsilon: 2.0
+        velocity_epsilon: 1.0
+        min_samples: 4
         doppler_threshold: 0.5
     """
     config = OmegaConf.create(conf_yaml)
@@ -80,14 +81,15 @@ def main():
     ax, cluster_scatter, noise_scatter, ego_point, frame_text, stats_text = init_plot(fig, view_radius=80)
 
     # Adjust layout to make room for sliders
-    fig.subplots_adjust(bottom=0.3)
+    fig.subplots_adjust(bottom=0.35)
     fig.suptitle('Radar Point Cloud Analysis', fontsize=16)
 
     # --- Interactive Sliders Setup ---
     # Define axes for sliders
-    ax_frame = fig.add_axes([0.25, 0.2, 0.5, 0.03])
-    ax_vel_weight = fig.add_axes([0.25, 0.15, 0.5, 0.03])
-    ax_eps = fig.add_axes([0.25, 0.1, 0.5, 0.03])
+    ax_frame = fig.add_axes([0.25, 0.25, 0.5, 0.03])
+    ax_vel_weight = fig.add_axes([0.25, 0.20, 0.5, 0.03])
+    ax_spatial_eps = fig.add_axes([0.25, 0.15, 0.5, 0.03])
+    ax_velocity_eps = fig.add_axes([0.25, 0.10, 0.5, 0.03])
     ax_min_samples = fig.add_axes([0.25, 0.05, 0.5, 0.03])
 
     # Create slider widgets
@@ -95,9 +97,13 @@ def main():
         ax=ax_vel_weight, label='Velocity Weight', valmin=0, valmax=20,
         valinit=config.dbscan.velocity_weight, valstep=0.1
     )
-    slider_eps = Slider(
-        ax=ax_eps, label='Epsilon (ε)', valmin=0.1, valmax=5,
-        valinit=config.dbscan.epsilon, valstep=0.05
+    slider_spatial_eps = Slider(
+        ax=ax_spatial_eps, label='Spatial ε (m)', valmin=0.1, valmax=5,
+        valinit=config.dbscan.spatial_epsilon, valstep=0.1
+    )
+    slider_velocity_eps = Slider(
+        ax=ax_velocity_eps, label='Velocity ε (m/s)', valmin=0.1, valmax=5,
+        valinit=config.dbscan.velocity_epsilon, valstep=0.1
     )
     slider_min_samples = Slider(
         ax=ax_min_samples, label='Min Samples', valmin=1, valmax=20,
@@ -126,7 +132,8 @@ def main():
         # --- B. Clustering ---
         moving_centroids, processed_frame = processing_factory.get_processed_frame(
             idx=idx,
-            eps=slider_eps.val,
+            spatial_eps=slider_spatial_eps.val,
+            velocity_eps=slider_velocity_eps.val,
             min_samples=slider_min_samples.val,
             velocity_weight=slider_vel_weight.val
         )
@@ -138,7 +145,7 @@ def main():
         
         # 2. Draw new boxes
         # Assuming processed_frame.moving_centroids contains your list of RadarObjects
-        if hasattr(moving_centroids, 'moving_centroids'):
+        if moving_centroids:
             for obj in moving_centroids:
                 # Transform Radar coordinates (x, y) to Plot coordinates (-y, x)
                 # Radar x (Forward) -> Plot y
@@ -146,8 +153,8 @@ def main():
                 
                 # Calculate dimensions
                 # obj.size is (dim_x, dim_y, dim_z)
-                radar_len = obj.size[0]  # along radar x
-                radar_width = obj.size[1] # along radar y
+                radar_len = obj.size.x  # along radar x
+                radar_width = obj.size.y # along radar y
                 
                 # Plot dimensions (width corresponds to radar y, height to radar x)
                 plot_width = radar_width
@@ -195,7 +202,7 @@ def main():
         fig.canvas.draw_idle()
 
     # Register the update function to be called on slider changes
-    for s in [slider_frame, slider_vel_weight, slider_eps, slider_min_samples]:
+    for s in [slider_frame, slider_vel_weight, slider_spatial_eps, slider_velocity_eps, slider_min_samples]:
         s.on_changed(update)
 
     # --- Initial Plot ---
