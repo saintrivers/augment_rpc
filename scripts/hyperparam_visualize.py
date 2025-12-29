@@ -7,6 +7,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.widgets import Slider
 
 from processing.datareader import load_radar_data, load_imu_data, load_radar_config
+from processing.groundtruth import GroundTruthReplay
 from processing.radarproc import RpcReplay
 from pipepine.factory import RpcProcessFactory
 from omegaconf import OmegaConf
@@ -18,6 +19,7 @@ def init_plot(fig, view_radius):
     cluster_scatter = ax.scatter([], [], c=[], cmap='jet', s=15, label='Clustered Points')
     # Scatter for noise points (gray)
     noise_scatter = ax.scatter([], [], c='gray', s=5, alpha=0.5, label='Noise')
+    gt_scatter = ax.scatter([], [], marker='s', s=120, facecolors='none', edgecolors='yellow', linewidth=2, label='Ground Truth')
     (ego_point,) = ax.plot([0], [0], 'r^', markersize=12, label='Ego')
 
     ax.set_title("DBSCAN Clustering of Radar Point Cloud")
@@ -36,7 +38,7 @@ def init_plot(fig, view_radius):
     # Add a text element for cluster stats
     stats_text = ax.text(0.02, 0.98, '', transform=ax.transAxes, va='top', fontsize=9)
     
-    return ax, cluster_scatter, noise_scatter, ego_point, frame_text, stats_text
+    return ax, cluster_scatter, noise_scatter, gt_scatter, ego_point, frame_text, stats_text
 
 
 def prepare_experiment_data(datadir: str, ego_id: int) -> RpcReplay:
@@ -59,9 +61,7 @@ def main():
     """Main function to run the hyperparameter visualization."""
     conf_yaml = """
     sim:
-        _datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/dataset/town3_4"
-        datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/_output"
-        ego_id: 51
+        datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/dataset/town3_5"
     dbscan:
         velocity_weight: 1.0 # Not used by MdDbscan, but we'll leave it for now
         spatial_epsilon: 2.0
@@ -71,15 +71,22 @@ def main():
     """
     config = OmegaConf.create(conf_yaml)
 
+    # Read ego_vehicle_id from metadata.json
+    metadata_path = os.path.join(config.sim.datadir, "metadata.json")
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+    ego_id = metadata["ego_vehicle_id"]
+
     # --- Data Loading ---
-    rpc_replay = prepare_experiment_data(config.sim.datadir, config.sim.ego_id)
+    rpc_replay = prepare_experiment_data(config.sim.datadir, ego_id)
+    gt_replay = GroundTruthReplay(os.path.join(config.sim.datadir, 'vehicle_coordinates.csv'), ego_id)
 
     # --- Clustering Factory ---
     processing_factory = RpcProcessFactory(rpc_replay)
 
     # --- Visualization ---
     fig = plt.figure(figsize=(12, 12))
-    ax, cluster_scatter, noise_scatter, ego_point, frame_text, stats_text = init_plot(fig, view_radius=80)
+    ax, cluster_scatter, noise_scatter, gt_scatter, ego_point, frame_text, stats_text = init_plot(fig, view_radius=80)
 
     # Adjust layout to make room for sliders
     fig.subplots_adjust(bottom=0.35)
@@ -137,6 +144,12 @@ def main():
             velocity_eps=slider_velocity_eps.val,
             min_samples=slider_min_samples.val,
             velocity_weight=slider_vel_weight.val
+        )
+        
+        # --- C. Ground Truth ---
+        gt_frame = gt_replay.get_frame_data(idx)
+        gt_scatter.set_offsets(
+            gt_frame.other_vehicles[['y_relative', 'x_relative']].values
         )
         # --- C. Update Bounding Boxes ---
         # 1. Remove old boxes

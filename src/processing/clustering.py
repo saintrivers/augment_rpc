@@ -139,8 +139,8 @@ class ClusterAnalyzer(ProcessingStep):
             # Density Check: A real car usually returns at least 3-4 points 
             # (unless it's extremely far away)
             num_points = np.sum(mask)
-            if num_points < 3: 
-                continue
+            # if num_points < 3: 
+            #     continue
 
             # --- 2. Geometry Calculation ---
             shape = self.calculate_bounding_box(mask)

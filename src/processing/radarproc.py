@@ -277,6 +277,7 @@ class RpcReplay:
         Assumes the input frame_ids list is sorted.
         """
         self.sim_length_steps = frame_ids[-1] - frame_ids[0]
+        self.start_frame_id = frame_ids[0]
         return range(0, self.sim_length_steps+1)
 
     def __init__(self, rpc: dict, frame_ids: list[int], sensor_transforms: dict, imu_df: 'pd.DataFrame'):
@@ -314,3 +315,16 @@ class RpcReplay:
         """
         # return self.xs[idx], self.ys[idx], self.zs[idx], self.velocities[idx]
         return RpcFrame(self.xs[idx], self.ys[idx], self.zs[idx], self.velocities[idx])
+    
+    def get_frame_by_id(self, frame_id: int) -> RpcFrame:
+        """
+        Docstring for get_frame_by_id
+        
+        :param self: Description
+        :param frame_id: Description
+        :type frame_id: int
+        :return: Description
+        :rtype: RpcFrame
+        """
+        idx = frame_id - self.start_frame_id
+        return self[idx]

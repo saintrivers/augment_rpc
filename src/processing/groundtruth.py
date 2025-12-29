@@ -21,6 +21,17 @@ class GroundTruthReplay:
     """
     Pre-processes and stores ground truth vehicle coordinate data for easy replay.
     """
+    def _reindex(self, frame_ids: list[int]):
+        """
+        Calculates simulation length and stores the starting frame ID to handle offsets.
+        """
+        if not frame_ids:
+            self.sim_length_steps = 0
+            self.start_frame_id = 0
+            return
+        self.start_frame_id = frame_ids[0]
+        self.sim_length_steps = frame_ids[-1] - self.start_frame_id
+
     def __init__(self, csv_path: str, ego_id: int):
         """
         Initializes the replay object by loading vehicle coordinates from a CSV.
@@ -36,9 +47,13 @@ class GroundTruthReplay:
             print(f"Error: Ground truth file not found at {csv_path}")
             self.df = pd.DataFrame()
         
-        self.frames = sorted(self.df.index.unique()) if not self.df.empty else []
+        all_frame_ids = sorted(self.df.index.unique()) if not self.df.empty else []
+        self._reindex(all_frame_ids)
 
-    def get_frame_data(self, frame_id: int) -> FrameGroundTruth:
+    def get_frame_data(self, idx: int) -> FrameGroundTruth:
+        # Apply the offset to get the true frame_id for the dataframe
+        frame_id = self.start_frame_id + idx
+
         frame_data = self.df.loc[self.df.index == frame_id]
         ego_df = frame_data[frame_data['vehicle_id'] == self.ego_id]
         other_df = frame_data[frame_data['vehicle_id'] != self.ego_id].copy() # Use copy to avoid SettingWithCopyWarning
