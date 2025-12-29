@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 import numpy as np
 from sklearn.cluster import DBSCAN
 from pipepine.core import ProcessingStep
@@ -101,12 +102,14 @@ class RadarObject:
     centroid: tuple[float, float, float]
     velocity: float
     size: BoxDimensions
+    id: Optional[str] = None 
 
 
 
 class ClusterAnalyzer(ProcessingStep):
-    def __init__(self, rpc_frame: RpcFrame):
+    def __init__(self, rpc_frame: RpcFrame, noise_velocity_threshold: float = 0.5):
         self.rpc_frame = rpc_frame
+        self.noise_velocity_threshold = noise_velocity_threshold
         
     def calculate_bounding_box(self, mask: np.ndarray) -> BoxDimensions:
         mean_x = self.rpc_frame.x[mask]
@@ -119,7 +122,7 @@ class ClusterAnalyzer(ProcessingStep):
 
         return BoxDimensions(dim_x, dim_y, dim_z)
 
-    def __call__(self, frame_cluster: FrameCluster):
+    def __call__(self, frame_cluster: FrameCluster) -> tuple[list[RadarObject], FrameCluster, list[int]]:
         unique_labels = np.unique(frame_cluster.labels)
         moving_centroids = []
         valid_labels = []
@@ -134,7 +137,7 @@ class ClusterAnalyzer(ProcessingStep):
             # Velocity Check: Is it actually moving?
             raw_v = self.rpc_frame.velocities[mask]
             mean_v = np.mean(raw_v) 
-            if np.abs(mean_v) < 1.0:
+            if np.abs(mean_v) < self.noise_velocity_threshold:
                 continue
 
             # Density Check: A real car usually returns at least 3-4 points 

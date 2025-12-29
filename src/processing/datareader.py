@@ -1,7 +1,36 @@
 import json
 import os 
 import numpy as np
+from omegaconf import OmegaConf
 import pandas as pd
+
+from processing.radarproc import RpcReplay
+
+
+def load_metadata(config_file: str = "config/base.yml"):
+    config = OmegaConf.load(config_file)
+
+    metadata_path = os.path.join(config.sim.datadir, "metadata.json") # type: ignore
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+    ego_id = metadata["ego_vehicle_id"]
+    return ego_id, config
+
+
+def prepare_experiment_data(datadir: str, ego_id: int) -> RpcReplay:
+    """
+    Loads rpc data structure designed for easy fetching and indexing of recorded simulation data.
+    
+    :param str datadir: absolute or relative path to the dataset root
+    :param int ego_id: id of the ego vehicle set by the carla simulator
+    :return rpc_replay: RpcReplay object
+    """
+    rpc, frame_ids = load_radar_data(datadir)
+    imu_df = load_imu_data(f"{datadir}/imu_data.csv", ego_id)
+    # nearby_df, ego_traj, frame_ids = load_and_prepare_data(config.sim.datadir, config.sim.ego_id)
+    sensor_transforms = load_radar_config(datadir)
+    rpc_replay = RpcReplay(rpc, frame_ids, sensor_transforms, imu_df)
+    return rpc_replay
 
 
 def load_radar_config(directory):

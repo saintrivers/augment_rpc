@@ -1,0 +1,8 @@
+sim:
+  datadir: "/home/dayan/projects/carla/rpc_bsm_mapping/dataset/town3_5"
+dbscan:
+  velocity_weight: 1.0
+  spatial_epsilon: 2.0
+  velocity_epsilon: 1.0
+  min_samples: 4
+  noise_velocity_threshold: 1.0

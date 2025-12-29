@@ -1,5 +1,5 @@
 from pipepine.core import ProcessingPipeline
-from processing.clustering import ClusterAnalyzer, DbscanClusterer, MdDbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
+from processing.clustering import ClusterAnalyzer, MdDbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
 from processing.radarproc import RpcReplay
 
 
@@ -24,7 +24,16 @@ class RpcProcessFactory:
         self.rpc_replay = rpc_replay
         self._memo = {}
 
-    def get_processed_frame(self, idx: int, spatial_eps: float, velocity_eps: float, min_samples: int, velocity_weight: float) -> tuple[list[RadarObject], FrameCluster, list[int]]:
+    def get_processed_frame(
+        self, 
+        idx: int, 
+        spatial_eps: 
+        float, 
+        velocity_eps: float, 
+        min_samples: int, 
+        velocity_weight: float,
+        noise_velocity_threshold: float,
+    ) -> tuple[list[RadarObject], FrameCluster, list[int]]:
         """
         Computes or retrieves the clustering result for a specific frame.
 
@@ -49,7 +58,7 @@ class RpcProcessFactory:
         pipeline = ProcessingPipeline(
             PointCloudPreprocessor(velocity_weight=velocity_weight), # This step is still needed by MdDbscanClusterer
             MdDbscanClusterer(spatial_eps=spatial_eps, velocity_eps=velocity_eps, min_samples=min_samples),
-            ClusterAnalyzer(rpc_frame=rpc_frame),
+            ClusterAnalyzer(rpc_frame, noise_velocity_threshold),
             # --- You can add more steps here! ---
             # e.g., BoundingBoxCalculator(), ClusterFilter(min_size=3)
         )
