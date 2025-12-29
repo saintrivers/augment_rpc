@@ -122,6 +122,7 @@ class ClusterAnalyzer(ProcessingStep):
     def __call__(self, frame_cluster: FrameCluster):
         unique_labels = np.unique(frame_cluster.labels)
         moving_centroids = []
+        valid_labels = []
         
         for label in unique_labels:
             if label == -1:
@@ -174,8 +175,9 @@ class ClusterAnalyzer(ProcessingStep):
             moving_centroids.append(
                 RadarObject(cluster_centroid, mean_v, shape)
             )
+            valid_labels.append(label)
                     
-        return moving_centroids, frame_cluster
+        return moving_centroids, frame_cluster, valid_labels
 
 
 class MdDbscanClusterer(ProcessingStep):

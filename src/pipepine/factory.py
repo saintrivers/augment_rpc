@@ -24,7 +24,7 @@ class RpcProcessFactory:
         self.rpc_replay = rpc_replay
         self._memo = {}
 
-    def get_processed_frame(self, idx: int, spatial_eps: float, velocity_eps: float, min_samples: int, velocity_weight: float) -> tuple[list[RadarObject], FrameCluster]:
+    def get_processed_frame(self, idx: int, spatial_eps: float, velocity_eps: float, min_samples: int, velocity_weight: float) -> tuple[list[RadarObject], FrameCluster, list[int]]:
         """
         Computes or retrieves the clustering result for a specific frame.
 
@@ -36,7 +36,7 @@ class RpcProcessFactory:
             velocity_weight (float): The weight for the velocity dimension.
 
         Returns
-            FrameCluster: An object containing the clustering results for the frame.
+            A tuple containing (list of RadarObjects, FrameCluster result, list of valid labels).
         """
         # Create a key that uniquely identifies this clustering request
         cache_key = (idx, spatial_eps, velocity_eps, min_samples, velocity_weight)

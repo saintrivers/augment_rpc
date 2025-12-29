@@ -137,22 +137,14 @@ def main():
             # current_frame_data.update({'xs': frame_rpc.x, 'ys': frame_rpc.y, 'zs': frame_rpc.z, 'velocities': frame_rpc.velocities})
             update.last_frame_id = idx
 
-        # --- B. Clustering ---
-        moving_centroids, processed_frame = processing_factory.get_processed_frame(
+        # --- B. Clustering and Analysis ---
+        moving_centroids, processed_frame, valid_labels = processing_factory.get_processed_frame(
             idx=idx,
             spatial_eps=slider_spatial_eps.val,
             velocity_eps=slider_velocity_eps.val,
             min_samples=slider_min_samples.val,
             velocity_weight=slider_vel_weight.val
         )
-        
-        # --- C. Ground Truth ---
-        gt_frame = gt_replay.get_frame_data(idx)
-        gt_scatter.set_offsets(
-            gt_frame.other_vehicles[['y_relative', 'x_relative']].values
-        )
-        # --- C. Update Bounding Boxes ---
-        # 1. Remove old boxes
         for p in box_patches:
             p.remove()
         box_patches.clear()
@@ -160,59 +152,44 @@ def main():
         # 2. Draw new boxes
         # Assuming processed_frame.moving_centroids contains your list of RadarObjects
         if moving_centroids:
-            for obj in moving_centroids:
-                # Transform Radar coordinates (x, y) to Plot coordinates (-y, x)
-                # Radar x (Forward) -> Plot y
-                # Radar y (Left/Right) -> Plot x (inverted)
-                
-                # Calculate dimensions
-                # obj.size is (dim_x, dim_y, dim_z)
-                radar_len = obj.size.x  # along radar x
-                radar_width = obj.size.y # along radar y
-                
-                # Plot dimensions (width corresponds to radar y, height to radar x)
-                plot_width = radar_width
-                plot_height = radar_len
+            pass # Bounding box drawing is removed
 
-                # Calculate Bottom-Left Corner for the Rectangle
-                # Center in plot coords: (-obj.centroid[1], obj.centroid[0])
-                plot_x = -obj.centroid[1] - (plot_width / 2)
-                plot_y = obj.centroid[0] - (plot_height / 2)
+        # --- C. Ground Truth ---
+        gt_frame = gt_replay.get_frame_data(idx)
+        gt_scatter.set_offsets(
+            gt_frame.other_vehicles[['y_relative', 'x_relative']].values
+        )
 
-                # Create and add the patch
-                rect = Rectangle(
-                    (plot_x, plot_y), plot_width, plot_height,
-                    linewidth=2, edgecolor='lime', facecolor='none'
-                )
-                ax.add_patch(rect)
-                box_patches.append(rect)
+        # --- D. Update Scatter Plots ---
+        # Create a mask for points belonging to valid clusters
+        valid_cluster_mask = np.isin(processed_frame.labels, valid_labels)
 
-        # Plot noise points
-        # 1 is y, 0 is x because I want the X (front facing) to point up
+        # Noise points are now the original noise OR points from invalid clusters
+        all_noise_mask = processed_frame.noise_mask | (~valid_cluster_mask & processed_frame.cluster_mask)
+
         noise_scatter.set_offsets(
             np.column_stack([
-                -processed_frame.point_cloud[processed_frame.noise_mask, 1], 
-                processed_frame.point_cloud[processed_frame.noise_mask,0]
-                ])
-            ) 
-        
-        # Plot clustered points
-        if np.any(processed_frame.cluster_mask):
+                -processed_frame.point_cloud[all_noise_mask, 1],
+                processed_frame.point_cloud[all_noise_mask, 0]
+            ])
+        )
+
+        # Plot only the points from valid clusters
+        if np.any(valid_cluster_mask):
             cluster_scatter.set_offsets(
                 np.column_stack([
-                    -processed_frame.point_cloud[processed_frame.cluster_mask, 1], 
-                    processed_frame.point_cloud[processed_frame.cluster_mask, 0]
-                    ])
-                )
+                    -processed_frame.point_cloud[valid_cluster_mask, 1],
+                    processed_frame.point_cloud[valid_cluster_mask, 0]
+                ])
+            )
             cluster_scatter.set_array(
-                processed_frame.labels[processed_frame.cluster_mask]
-                )
+                processed_frame.labels[valid_cluster_mask]
+            )
         else:
             cluster_scatter.set_offsets(np.empty((0, 2)))
 
         frame_text.set_text(f'Frame ID: {idx}')
-        num_clusters = len(set(processed_frame.labels)) - (1 if -1 in processed_frame.labels else 0)
-        stats_text.set_text(f'Clusters: {num_clusters}\nNoise Pts: {np.sum(processed_frame.noise_mask)}')
+        stats_text.set_text(f'Valid Clusters: {len(valid_labels)}\nNoise Pts: {np.sum(all_noise_mask)}')
         fig.canvas.draw_idle()
 
     # Register the update function to be called on slider changes
