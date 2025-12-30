@@ -1,19 +1,16 @@
 import os
-import json
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 from matplotlib.widgets import Slider
 
 import argparse
-from processing.association import HungarianMatcher
-from processing.clustering import FrameCluster, RadarObject
-from processing.datareader import load_metadata, load_radar_data, load_imu_data, load_radar_config, prepare_experiment_data
+
+from processing.association import HungarianMatcher, hungarian_matching
+from processing.datareader import load_ego_imu_data, load_metadata, prepare_experiment_data
 from processing.groundtruth import GroundTruthReplay
-from processing.radarproc import RpcReplay
 from pipepine.factory import RpcProcessFactory
-from omegaconf import OmegaConf
+from processing.imu import get_gyro
+
 
 def init_plot(fig, view_radius):
     """Initializes a single 2D plot for visualizing clustered RPC data."""
@@ -43,6 +40,7 @@ def init_plot(fig, view_radius):
     
     return ax, cluster_scatter, noise_scatter, gt_scatter, ego_point, frame_text, stats_text
 
+
 def get_color_from_id(obj_id):
     """
     Returns a consistent color for a given integer ID.
@@ -52,57 +50,6 @@ def get_color_from_id(obj_id):
     cmap = plt.get_cmap('tab20')
     return cmap(obj_id % 20)
 
-
-def hungarian_matching(
-    params: dict[str, float], 
-    processing_factory: RpcProcessFactory,
-    matcher: HungarianMatcher,
-    idx: int
-    ) -> tuple[list[RadarObject], FrameCluster, list[int]]:
-    """
-    Performs Hungarian Matching between the current frame and the previous frame, assiging an ID to each RadarObject found and tracking the ID across time.
-    
-    :param idx: Zero-based index of the frame to process.
-    :type idx: int
-    :param dbscan_config: The `dbscan` configuration object from the YAML configuration file.
-    :type dbscan_config: dict[str, float]
-    :param rpc_replay: Description
-    :type rpc_replay: RpcReplay
-    :param processing_factory: Description
-    :type processing_factory: RpcProcessFactory
-    :param matcher: Description
-    :type matcher: HungarianMatcher
-    :return: Description
-    :rtype: tuple[list[RadarObject], FrameCluster, list[int]]
-    """
-    
-    # params = {
-    #     "spatial_eps": dbscan_config.spatial_epsilon,
-    #     "velocity_eps": dbscan_config.velocity_epsilon,
-    #     "min_samples": dbscan_config.min_samples,
-    #     "velocity_weight": dbscan_config.velocity_weight,
-    #     "noise_velocity_threshold": dbscan_config.noise_velocity_threshold
-    # }
-    
-    if idx < 1:
-        """
-        There is no previous frame to process. Return the processed clusters as it is.
-        """
-        return processing_factory.get_processed_frame(idx=idx, **params)
-    
-    # for idx in range(1, rpc_replay.sim_length_steps):
-    moving_centroids_prev, _, _ = processing_factory.get_processed_frame(idx=idx - 1, **params)
-    moving_centroids_curr, processed_frame, valid_labels  = processing_factory.get_processed_frame(idx=idx, **params)
-    matched_output = matcher(moving_centroids_prev, moving_centroids_curr)
-
-    for curr_idx, prev_idx in matched_output.items():
-        # 1. Get the ID of the old object
-        old_id = moving_centroids_prev[prev_idx].id
-
-        # 2. Assign it to the new object
-        moving_centroids_curr[curr_idx].id = old_id
-            
-    return moving_centroids_curr, processed_frame, valid_labels
 
 
 def main():
@@ -115,6 +62,8 @@ def main():
     # args = parser.parse_args()
     args = "config/base.yml"
     ego_id, config = load_metadata(args)
+    ego_imu = load_ego_imu_data(f"{config.sim.datadir}/imu_data.csv", ego_id)
+    
     
     # --- Data Loading ---
     rpc_replay = prepare_experiment_data(config.sim.datadir, ego_id)
@@ -185,7 +134,18 @@ def main():
             "velocity_weight": slider_vel_weight.val,
             "noise_velocity_threshold": config.dbscan.noise_velocity_threshold,
         }
-        moving_centroids, processed_frame, valid_labels = hungarian_matching(dbscan_config, processing_factory, matcher, idx)
+        
+        target_frame_id = idx + rpc_replay.start_frame_id
+        ego_gyro = get_gyro(ego_imu, target_frame_id)
+        moving_centroids, processed_frame, valid_labels = hungarian_matching(
+            idx=idx,
+            params=dbscan_config, 
+            processing_factory=processing_factory, 
+            matcher=matcher, 
+            ego_gyro=ego_gyro
+        )
+        centroid_ids = [obj.id for obj in moving_centroids]
+        print(centroid_ids)
 
         for p in box_patches:
             p.remove()

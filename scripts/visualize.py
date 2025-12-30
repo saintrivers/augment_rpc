@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Assuming these utility functions are in the same directory or accessible
-from processing.datareader import load_radar_data, load_imu_data
+from processing.datareader import load_radar_data, load_ego_imu_data
 from processing.radarproc import collect_transformed_rpc
 
 
@@ -75,7 +74,7 @@ def run_visualization(args):
     print("Loading data...")
     gt_all_df = pd.read_csv(os.path.join(args.datadir, 'vehicle_coordinates.csv'))
     ego_traj = gt_all_df[gt_all_df['vehicle_id'] == args.ego_id].set_index('frame_id')
-    imu_df = load_imu_data(f"{args.datadir}/imu_data.csv", args.ego_id)
+    imu_df = load_ego_imu_data(f"{args.datadir}/imu_data.csv", args.ego_id)
 
     if ego_traj.empty:
         print(f"❌ Error: Ego vehicle with ID {args.ego_id} not found.")

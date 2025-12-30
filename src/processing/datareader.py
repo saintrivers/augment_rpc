@@ -26,7 +26,7 @@ def prepare_experiment_data(datadir: str, ego_id: int) -> RpcReplay:
     :return rpc_replay: RpcReplay object
     """
     rpc, frame_ids = load_radar_data(datadir)
-    imu_df = load_imu_data(f"{datadir}/imu_data.csv", ego_id)
+    imu_df = load_ego_imu_data(f"{datadir}/imu_data.csv", ego_id)
     # nearby_df, ego_traj, frame_ids = load_and_prepare_data(config.sim.datadir, config.sim.ego_id)
     sensor_transforms = load_radar_config(datadir)
     rpc_replay = RpcReplay(rpc, frame_ids, sensor_transforms, imu_df)
@@ -74,7 +74,7 @@ def load_radar_data(directory):
     return rpc, sorted(list(all_frame_ids))
 
 
-def load_imu_data(filepath, ego_id):
+def load_ego_imu_data(filepath, ego_id):
     """
     Loads IMU data for the specified ego vehicle and sets the frame_id as the index.
     """
