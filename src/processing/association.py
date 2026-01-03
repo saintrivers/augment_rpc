@@ -60,9 +60,8 @@ class HungarianMatcher:
         return associations
 
 
-def _get_compensation_values(timestamp_curr, timestamp_prev, point_cloud, ego_gyro):
-    dt = timestamp_curr - timestamp_prev
-    if dt <= 0:
+def get_compensation_values(dt: float, point_cloud: np.ndarray, ego_gyro: np.ndarray) -> tuple[float, float, float]:
+    if dt <= 0.0:
         return 0.0, 0.0, 0.0
 
     # If point_cloud is a list of arrays, stack them into one array
@@ -85,7 +84,7 @@ def _get_compensation_values(timestamp_curr, timestamp_prev, point_cloud, ego_gy
     return dx_ego, dy_ego, d_theta
 
 
-def _compensate_motion(objects, dx, dy, dtheta):
+def compensate_motion(objects, dx, dy, dtheta):
     # Rotation matrix for the change in heading
     c, s = np.cos(dtheta), np.sin(dtheta)
     R = np.array(((c, s), (-s, c))) 
@@ -99,9 +98,9 @@ def _compensate_motion(objects, dx, dy, dtheta):
         # 2. Rotate (Adjust for car turning)
         # Apply rotation to the shifted point
         obj.centroid = R.dot(np.array([shifted_x, shifted_y]))
+        
 
-
-def hungarian_matching(
+def hungarian_matching_v1(
         idx: int,
         processing_factory: RpcProcessFactory,
         matcher: HungarianMatcher,
@@ -150,15 +149,14 @@ def hungarian_matching(
     
     moving_centroids_curr, processed_frame, valid_labels  = processing_factory.get_processed_frame(idx=idx, **params)
     
-    
-    ego_dx, ego_dy, ego_dtheta = _get_compensation_values(
+    ego_dx, ego_dy, ego_dtheta = get_compensation_values(
         timestamp_curr=idx, 
         timestamp_prev=idx-1, 
         point_cloud=processed_frame.point_cloud, 
         ego_gyro=ego_gyro
     )
     detections_prev_compensated = copy.deepcopy(moving_centroids_prev)
-    _compensate_motion(detections_prev_compensated, ego_dx, ego_dy, ego_dtheta)
+    compensate_motion(detections_prev_compensated, ego_dx, ego_dy, ego_dtheta)
     matches = matcher(detections_prev_compensated, moving_centroids_curr)
     
     assigned_current_indices = set()

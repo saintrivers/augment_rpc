@@ -153,12 +153,43 @@ def main():
                 mode='markers',
                 marker=dict(
                     color=point_colors,
-                    colorscale='Jet',
+                    colorscale='Plotly3',
                     size=8,
                     showscale=False
                 ),
                 name='Clusters'
             ))
+            
+            # --- Plot Cluster IDs ---
+            # To ensure IDs are centered on the *visible* points, we must calculate
+            # the centroid from the point cloud for each valid label.
+            
+            annotation_ids = []
+            annotation_x = []
+            annotation_y = []
+
+            for label, track_id in label_to_id_map.items():
+                # Get all points for this specific cluster label
+                mask = processed_frame.labels == label
+                points_for_cluster = processed_frame.point_cloud[mask]
+                
+                # Calculate the geometric center of the visible points
+                center_y, center_x = -np.mean(points_for_cluster[:, 1]), np.mean(points_for_cluster[:, 0])
+                
+                annotation_ids.append(str(track_id))
+                annotation_x.append(center_y)
+                annotation_y.append(center_x)
+
+            fig.add_trace(go.Scatter(
+                x=annotation_x,
+                y=annotation_y,
+                mode='text',
+                text=annotation_ids,
+                textposition='top center',
+                textfont=dict(size=10, color='black'),
+                showlegend=False
+            ))
+
 
         # --- Layout and Styling ---
         view_radius = 80
