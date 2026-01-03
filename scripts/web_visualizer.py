@@ -7,13 +7,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 
-from processing.association import HungarianMatcher, hungarian_matching
-from processing.datareader import load_metadata, prepare_experiment_data
-from processing.groundtruth import GroundTruthReplay
-from pipepine.factory import RpcProcessFactory
-from processing.imu import get_gyro
-from processing.datareader import load_ego_imu_data
-
+from processing.visualization_data_provider import VisualizationDataProvider
 
 def main():
     """Main function to run the web-based hyperparameter visualizer."""
@@ -24,23 +18,16 @@ def main():
     parser.add_argument('--config', type=str, default="config/base.yml", help='Path to the YAML configuration file.')
     cli_args = parser.parse_args()
 
-    ego_id, config = load_metadata(cli_args.config)
-    datadir = config.sim.datadir
-
-    # --- Data Loading ---
-    print("Loading data for web visualizer...")
-    ego_imu = load_ego_imu_data(f"{datadir}/imu_data.csv", ego_id)
-    rpc_replay = prepare_experiment_data(datadir, ego_id)
-    gt_replay = GroundTruthReplay(os.path.join(datadir, 'vehicle_coordinates.csv'), ego_id)
-    processing_factory = RpcProcessFactory(rpc_replay)
-    matcher = HungarianMatcher(max_distance=2.0)
-    print("Data loaded. Starting web server...")
+    # --- Centralized Data Loading ---
+    data_provider = VisualizationDataProvider(cli_args.config)
+    config = data_provider.config  # Get config for initial slider values
+    print("Starting web server...")
 
     # --- Dash App Initialization ---
     app = dash.Dash(__name__)
 
     # --- App Layout ---
-    app.layout = html.Div([
+    app.layout = html.Div(style={'fontFamily': 'Arial, sans-serif'}, children=[
         html.H1("Radar Point Cloud Analysis", style={'textAlign': 'center'}),
         html.Div(style={'display': 'flex', 'flexDirection': 'row'}, children=[
             # Left side: Graph
@@ -57,10 +44,10 @@ def main():
                         dcc.Slider(
                             id='frame-slider',
                             min=0,
-                            max=rpc_replay.sim_length_steps,
+                            max=data_provider.rpc_replay.sim_length_steps,
                             value=0,
                             step=1,
-                            marks={i: str(i) for i in range(0, rpc_replay.sim_length_steps + 1, 50)}
+                            marks={i: str(i) for i in range(0, data_provider.rpc_replay.sim_length_steps + 1, 50)}
                         ),
                     ], style={'padding': '15px 10px'}),
                     html.Div([
@@ -106,30 +93,18 @@ def main():
          Input('min-samples-slider', 'value')]
     )
     def update_graph(frame_idx, vel_weight, spatial_eps, velocity_eps, min_samples):
-        # --- B. Clustering and Analysis ---
-        dbscan_config = {
+        # --- Get Processed Data ---
+        params = {
+            "vel_weight": vel_weight,
             "spatial_eps": spatial_eps,
             "velocity_eps": velocity_eps,
-            "min_samples": int(min_samples),
-            "velocity_weight": vel_weight,
-            "noise_velocity_threshold": config.dbscan.noise_velocity_threshold,
+            "min_samples": min_samples,
         }
-        
-        target_frame_id = frame_idx + rpc_replay.start_frame_id
-        ego_gyro = get_gyro(ego_imu, target_frame_id)
-        
-        moving_centroids, processed_frame, valid_labels = hungarian_matching(
-            idx=frame_idx,
-            params=dbscan_config, 
-            processing_factory=processing_factory, 
-            matcher=matcher, 
-            ego_gyro=ego_gyro
+        moving_centroids, processed_frame, valid_labels, gt_frame = data_provider.get_frame_data(
+            frame_idx, params
         )
 
-        # --- C. Ground Truth ---
-        gt_frame = gt_replay.get_frame_data(frame_idx)
-
-        # --- D. Create Plotly Figure ---
+        # --- Create Plotly Figure ---
         fig = go.Figure()
 
         # Ego vehicle

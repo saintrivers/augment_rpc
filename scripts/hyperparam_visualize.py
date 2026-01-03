@@ -5,12 +5,7 @@ from matplotlib.widgets import Slider
 
 import argparse
 
-from processing.association import HungarianMatcher, hungarian_matching
-from processing.datareader import load_ego_imu_data, load_metadata, prepare_experiment_data
-from processing.groundtruth import GroundTruthReplay
-from pipepine.factory import RpcProcessFactory
-from processing.imu import get_gyro
-
+from processing.visualization_data_provider import VisualizationDataProvider
 
 def init_plot(fig, view_radius):
     """Initializes a single 2D plot for visualizing clustered RPC data."""
@@ -58,20 +53,12 @@ def main():
         description="Visualize radar clustering with interactive hyperparameters.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    # parser.add_argument('--config', type=str, default="config/base.yml", help='Path to the YAML configuration file.')
-    # args = parser.parse_args()
-    args = "config/base.yml"
-    ego_id, config = load_metadata(args)
-    ego_imu = load_ego_imu_data(f"{config.sim.datadir}/imu_data.csv", ego_id)
-    
-    
-    # --- Data Loading ---
-    rpc_replay = prepare_experiment_data(config.sim.datadir, ego_id)
-    gt_replay = GroundTruthReplay(os.path.join(config.sim.datadir, 'vehicle_coordinates.csv'), ego_id)
+    parser.add_argument('--config', type=str, default="config/base.yml", help='Path to the YAML configuration file.')
+    args = parser.parse_args()
 
-    # --- Clustering Factory & Hungarian Matcher ---
-    processing_factory = RpcProcessFactory(rpc_replay)
-    matcher = HungarianMatcher(max_distance=2.0)
+    # --- Centralized Data Loading ---
+    data_provider = VisualizationDataProvider(args.config)
+    config = data_provider.config
 
     # --- Visualization ---
     fig = plt.figure(figsize=(12, 12))
@@ -107,7 +94,7 @@ def main():
         valinit=config.dbscan.min_samples, valstep=1
     )
     slider_frame = Slider(
-        ax=ax_frame, label='Frame ID', valmin=0, valmax=rpc_replay.sim_length_steps,
+        ax=ax_frame, label='Frame ID', valmin=0, valmax=data_provider.rpc_replay.sim_length_steps,
         valinit=0, valstep=1
     )
 
@@ -117,47 +104,23 @@ def main():
     def update(val):
         """This function is called by any slider to reload data and redraw the plot."""
         idx = int(slider_frame.val)
-        # rpc_index = frame_id
 
-        # --- A. Data Loading and Processing ---
-        # Only reload data if the frame has changed
-        if idx != getattr(update, "last_frame_id", None):            
-            # frame_rpc = rpc_replay[idx]
-            # current_frame_data.update({'xs': frame_rpc.x, 'ys': frame_rpc.y, 'zs': frame_rpc.z, 'velocities': frame_rpc.velocities})
-            update.last_frame_id = idx
-
-        # --- B. Clustering and Analysis ---
-        dbscan_config = {
+        # --- Get Processed Data ---
+        params = {
+            "vel_weight": slider_vel_weight.val,
             "spatial_eps": slider_spatial_eps.val,
             "velocity_eps": slider_velocity_eps.val,
             "min_samples": slider_min_samples.val,
-            "velocity_weight": slider_vel_weight.val,
-            "noise_velocity_threshold": config.dbscan.noise_velocity_threshold,
         }
-        
-        target_frame_id = idx + rpc_replay.start_frame_id
-        ego_gyro = get_gyro(ego_imu, target_frame_id)
-        moving_centroids, processed_frame, valid_labels = hungarian_matching(
-            idx=idx,
-            params=dbscan_config, 
-            processing_factory=processing_factory, 
-            matcher=matcher, 
-            ego_gyro=ego_gyro
+        moving_centroids, processed_frame, valid_labels, gt_frame = data_provider.get_frame_data(
+            idx, params
         )
-        centroid_ids = [obj.id for obj in moving_centroids]
-        print(centroid_ids)
 
         for p in box_patches:
             p.remove()
         box_patches.clear()
-        
-        # 2. Draw new boxes
-        # Assuming processed_frame.moving_centroids contains your list of RadarObjects
-        if moving_centroids:
-            pass # Bounding box drawing is removed
 
         # --- C. Ground Truth ---
-        gt_frame = gt_replay.get_frame_data(idx)
         gt_scatter.set_offsets(
             gt_frame.other_vehicles[['y_relative', 'x_relative']].values
         )
