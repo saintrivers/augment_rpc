@@ -174,5 +174,6 @@ def hungarian_matching(
     for i, obj in enumerate(moving_centroids_curr):
         if i not in assigned_current_indices:
             obj.id = next_new_id
-            
+            next_new_id += 1
+
     return moving_centroids_curr, processed_frame, valid_labels

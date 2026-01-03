@@ -189,6 +189,14 @@ def main():
             )
         else:
             cluster_scatter.set_offsets(np.empty((0, 2)))
+            
+        # Create a mapping from the original DBSCAN label to the final tracked ID
+        label_to_id_map = {label: obj.id for label, obj in zip(valid_labels, moving_centroids)}
+        
+        # Create an array of colors for each point in the valid clusters
+        point_colors = [label_to_id_map[l] for l in processed_frame.labels[valid_cluster_mask]]
+        
+        cluster_scatter.set_array(np.array(point_colors))
 
         frame_text.set_text(f'Frame ID: {idx}')
         stats_text.set_text(f'Valid Clusters: {len(valid_labels)}\nNoise Pts: {np.sum(all_noise_mask)}')
