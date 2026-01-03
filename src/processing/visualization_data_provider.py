@@ -1,11 +1,20 @@
 import os
 import numpy as np
+from dataclasses import dataclass, asdict
 
 from processing.association import HungarianMatcher, hungarian_matching
 from processing.datareader import load_metadata, prepare_experiment_data, load_ego_imu_data
 from processing.groundtruth import GroundTruthReplay
 from pipepine.factory import RpcProcessFactory
 from processing.imu import get_gyro
+
+@dataclass
+class MethodParams:
+    spatial_eps: float
+    velocity_eps: float
+    min_samples: int
+    vel_weight: float
+    noise_velocity_threshold: float
 
 
 class VisualizationDataProvider:
@@ -33,24 +42,24 @@ class VisualizationDataProvider:
         self.matcher = HungarianMatcher(max_distance=2.0)
         print("Data loaded successfully.")
 
-    def get_frame_data(self, frame_idx: int, params: dict):
+    def get_frame_data(self, frame_idx: int, params: MethodParams):
         """
         Processes a single frame with the given parameters and returns all data needed for plotting.
 
         Args:
             frame_idx (int): The index of the frame to process.
-            params (dict): A dictionary of clustering hyperparameters.
+            params (MethodParams): An object containing clustering hyperparameters.
 
         Returns:
             tuple: A tuple containing moving_centroids, processed_frame, valid_labels, and gt_frame.
         """
         # 1. Run Clustering and Association
         dbscan_config = {
-            "spatial_eps": params['spatial_eps'],
-            "velocity_eps": params['velocity_eps'],
-            "min_samples": int(params['min_samples']),
-            "velocity_weight": params['vel_weight'],
-            "noise_velocity_threshold": self.config.dbscan.noise_velocity_threshold,
+            "spatial_eps": params.spatial_eps,
+            "velocity_eps": params.velocity_eps,
+            "min_samples": int(params.min_samples),
+            "velocity_weight": params.vel_weight,
+            "noise_velocity_threshold": params.noise_velocity_threshold,
         }
 
         target_frame_id = frame_idx + self.rpc_replay.start_frame_id

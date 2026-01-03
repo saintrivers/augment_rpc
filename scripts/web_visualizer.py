@@ -7,7 +7,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 
-from processing.visualization_data_provider import VisualizationDataProvider
+from processing.visualization_data_provider import VisualizationDataProvider, MethodParams
 
 def main():
     """Main function to run the web-based hyperparameter visualizer."""
@@ -78,6 +78,13 @@ def main():
                             min=1, max=20, value=config.dbscan.min_samples, step=1
                         ),
                     ], style={'padding': '15px 10px'}),
+                    html.Div([
+                        html.Label('Noise Velocity Threshold (m/s)'),
+                        dcc.Slider(
+                            id='noise-vel-thresh-slider',
+                            min=0.1, max=5, value=config.dbscan.noise_velocity_threshold, step=0.1
+                        ),
+                    ], style={'padding': '15px 10px'}),
                 ],
                 style={'flex': '1', 'padding': '20px', 'borderLeft': '1px solid #ccc', 'backgroundColor': '#f8f9fa'}
             )
@@ -90,16 +97,18 @@ def main():
          Input('vel-weight-slider', 'value'),
          Input('spatial-eps-slider', 'value'),
          Input('velocity-eps-slider', 'value'),
-         Input('min-samples-slider', 'value')]
+         Input('min-samples-slider', 'value'),
+         Input('noise-vel-thresh-slider', 'value')]
     )
-    def update_graph(frame_idx, vel_weight, spatial_eps, velocity_eps, min_samples):
+    def update_graph(frame_idx, vel_weight, spatial_eps, velocity_eps, min_samples, noise_vel_thresh):
         # --- Get Processed Data ---
-        params = {
-            "vel_weight": vel_weight,
-            "spatial_eps": spatial_eps,
-            "velocity_eps": velocity_eps,
-            "min_samples": min_samples,
-        }
+        params = MethodParams(
+            vel_weight=vel_weight,
+            spatial_eps=spatial_eps,
+            velocity_eps=velocity_eps,
+            min_samples=min_samples,
+            noise_velocity_threshold=noise_vel_thresh
+        )
         moving_centroids, processed_frame, valid_labels, gt_frame = data_provider.get_frame_data(
             frame_idx, params
         )

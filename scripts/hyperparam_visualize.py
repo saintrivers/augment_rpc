@@ -5,7 +5,7 @@ from matplotlib.widgets import Slider
 
 import argparse
 
-from processing.visualization_data_provider import VisualizationDataProvider
+from processing.visualization_data_provider import VisualizationDataProvider, MethodParams
 
 def init_plot(fig, view_radius):
     """Initializes a single 2D plot for visualizing clustered RPC data."""
@@ -65,16 +65,17 @@ def main():
     ax, cluster_scatter, noise_scatter, gt_scatter, ego_point, frame_text, stats_text = init_plot(fig, view_radius=80)
 
     # Adjust layout to make room for sliders
-    fig.subplots_adjust(bottom=0.35)
+    fig.subplots_adjust(bottom=0.40)
     fig.suptitle('Radar Point Cloud Analysis', fontsize=16)
 
     # --- Interactive Sliders Setup ---
     # Define axes for sliders
-    ax_frame = fig.add_axes([0.25, 0.25, 0.5, 0.03])
-    ax_vel_weight = fig.add_axes([0.25, 0.20, 0.5, 0.03])
-    ax_spatial_eps = fig.add_axes([0.25, 0.15, 0.5, 0.03])
-    ax_velocity_eps = fig.add_axes([0.25, 0.10, 0.5, 0.03])
-    ax_min_samples = fig.add_axes([0.25, 0.05, 0.5, 0.03])
+    ax_frame = fig.add_axes([0.25, 0.30, 0.5, 0.03])
+    ax_vel_weight = fig.add_axes([0.25, 0.25, 0.5, 0.03])
+    ax_spatial_eps = fig.add_axes([0.25, 0.20, 0.5, 0.03])
+    ax_velocity_eps = fig.add_axes([0.25, 0.15, 0.5, 0.03])
+    ax_min_samples = fig.add_axes([0.25, 0.10, 0.5, 0.03])
+    ax_noise_thresh = fig.add_axes([0.25, 0.05, 0.5, 0.03])
 
     # Create slider widgets
     slider_vel_weight = Slider(
@@ -97,6 +98,10 @@ def main():
         ax=ax_frame, label='Frame ID', valmin=0, valmax=data_provider.rpc_replay.sim_length_steps,
         valinit=0, valstep=1
     )
+    slider_noise_thresh = Slider(
+        ax=ax_noise_thresh, label='Noise Vel Thresh', valmin=0.1, valmax=5,
+        valinit=config.dbscan.noise_velocity_threshold, valstep=0.1
+    )
 
     box_patches = []
     
@@ -106,12 +111,13 @@ def main():
         idx = int(slider_frame.val)
 
         # --- Get Processed Data ---
-        params = {
-            "vel_weight": slider_vel_weight.val,
-            "spatial_eps": slider_spatial_eps.val,
-            "velocity_eps": slider_velocity_eps.val,
-            "min_samples": slider_min_samples.val,
-        }
+        params = MethodParams(
+            vel_weight=slider_vel_weight.val,
+            spatial_eps=slider_spatial_eps.val,
+            velocity_eps=slider_velocity_eps.val,
+            min_samples=slider_min_samples.val,
+            noise_velocity_threshold=slider_noise_thresh.val
+        )
         moving_centroids, processed_frame, valid_labels, gt_frame = data_provider.get_frame_data(
             idx, params
         )
@@ -166,7 +172,7 @@ def main():
         fig.canvas.draw_idle()
 
     # Register the update function to be called on slider changes
-    for s in [slider_frame, slider_vel_weight, slider_spatial_eps, slider_velocity_eps, slider_min_samples]:
+    for s in [slider_frame, slider_vel_weight, slider_spatial_eps, slider_velocity_eps, slider_min_samples, slider_noise_thresh]:
         s.on_changed(update)
 
     # --- Initial Plot ---
