@@ -55,7 +55,7 @@ class VisualizationDataProvider:
         # Initialize the tracker with tunable parameters.
         # A higher process_noise makes the filter adapt more quickly to acceleration.
         self.track_manager = TrackManager(
-            process_noise=0.5, gating_threshold=1.0
+            process_noise=0.5, gating_threshold=5.0
         )
         
         # State for ego-motion compensation
@@ -110,33 +110,30 @@ class VisualizationDataProvider:
         
         # handle starting frame with no previous measurement
         if idx <= 1:
-            centroids_relative, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=1, **params)
-            for x in centroids_relative:
+            relative_cluster_centroids, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=1, **params)
+            for x in relative_cluster_centroids:
                 x.id = self.last_index
                 self.last_index += 1
-            return centroids_relative, processed_frame, valid_labels
+            return relative_cluster_centroids, processed_frame, valid_labels
 
-        centroids_relative, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=idx - 1, **params)
-        for x in centroids_relative:
-            x.id = self.last_index
-            self.last_index += 1
-        # print(centroids_relative[0].centroid)
-
-        measurements = np.array([[obj.centroid[0], obj.centroid[1], obj.velocity] for obj in centroids_relative])
+        relative_cluster_centroids, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=idx - 1, **params)
+        
+        measurements = np.array([[obj.centroid[0], obj.centroid[1], obj.velocity] for obj in relative_cluster_centroids])
         self.track_manager.update(measurements=measurements, dt=0.1)
         
-        centroids_relative = [track_to_centroid(track) for track in self.track_manager.tracks]
+        track_centroids = [track_to_centroid(track) for track in self.track_manager.tracks]
+        print(f"Clusters: {len(relative_cluster_centroids)} - Tracks: {len(self.track_manager.tracks)}")
 
         # Write centroids to CSV file
         with open(self.centroids_csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
-            for obj in centroids_relative:
+            for obj in track_centroids:
                 row = [idx, obj.id]
                 row.extend(obj.centroid)
                 row.append(obj.velocity)
                 writer.writerow(row)
 
-        return centroids_relative, processed_frame, valid_labels
+        return track_centroids, processed_frame, valid_labels
 
 def track_to_centroid(track: Track) -> RadarObject:
     centroid = (track.state.x[0], track.state.x[1], 0)

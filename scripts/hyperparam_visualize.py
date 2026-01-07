@@ -45,8 +45,6 @@ def get_color_from_id(obj_id):
     cmap = plt.get_cmap('tab20')
     return cmap(obj_id % 20)
 
-
-
 def main():
     """Main function to run the hyperparameter visualization."""
     parser = argparse.ArgumentParser(
@@ -103,7 +101,7 @@ def main():
         valinit=config.dbscan.noise_velocity_threshold, valstep=0.1
     )
 
-    box_patches = []
+    text_annotations = []
     
     # --- Update Functions ---
     def update(val):
@@ -122,9 +120,10 @@ def main():
             idx, params
         )
 
-        for p in box_patches:
-            p.remove()
-        box_patches.clear()
+        # Clear previous annotations
+        for txt in text_annotations:
+            txt.remove()
+        text_annotations.clear()
 
         # --- C. Ground Truth ---
         gt_scatter.set_offsets(
@@ -147,26 +146,31 @@ def main():
 
         # Plot only the points from valid clusters
         if np.any(valid_cluster_mask):
+            # Create a mapping from the original DBSCAN label to the final tracked ID
+            label_to_id_map = {label: obj.id for label, obj in zip(valid_labels, moving_centroids)}
+            
+            # Create an array of colors (based on track ID) for each point in the valid clusters
+            point_ids = [label_to_id_map.get(l, -1) for l in processed_frame.labels[valid_cluster_mask]]
+
             cluster_scatter.set_offsets(
                 np.column_stack([
                     -processed_frame.point_cloud[valid_cluster_mask, 1],
                     processed_frame.point_cloud[valid_cluster_mask, 0]
                 ])
             )
-            cluster_scatter.set_array(
-                processed_frame.labels[valid_cluster_mask]
-            )
+            cluster_scatter.set_array(np.array(point_ids))
+
+            # Add text annotations for each tracked object ID
+            for centroid_obj in moving_centroids:
+                # The plot's x-axis is the vehicle's -y, and the plot's y-axis is the vehicle's x.
+                plot_x = -centroid_obj.centroid[1]
+                plot_y = centroid_obj.centroid[0]
+                
+                txt = ax.text(plot_x, plot_y + 1, str(centroid_obj.id), color='black', fontsize=10, ha='center', va='bottom')
+                text_annotations.append(txt)
         else:
             cluster_scatter.set_offsets(np.empty((0, 2)))
             
-        # Create a mapping from the original DBSCAN label to the final tracked ID
-        label_to_id_map = {label: obj.id for label, obj in zip(valid_labels, moving_centroids)}
-        
-        # Create an array of colors for each point in the valid clusters
-        point_colors = [label_to_id_map[l] for l in processed_frame.labels[valid_cluster_mask]]
-        
-        cluster_scatter.set_array(np.array(point_colors))
-
         frame_text.set_text(f'Frame ID: {idx}')
         stats_text.set_text(f'Valid Clusters: {len(valid_labels)}\nNoise Pts: {np.sum(all_noise_mask)}')
         fig.canvas.draw_idle()

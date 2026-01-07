@@ -122,6 +122,28 @@ class ClusterGating(ProcessingStep):
 
         return BoxDimensions(dim_x, dim_y, dim_z)
 
+    def is_flat_plane(self, mask: np.ndarray, flatness_threshold: float = 0.05) -> bool:
+        """
+        Determines if a cluster of points forms a flat plane using PCA.
+
+        Args:
+            mask (np.ndarray): A boolean mask for the points in the cluster.
+            flatness_threshold (float): Ratio of smallest to largest variance. If below
+                                        this, the cluster is considered a plane.
+
+        Returns:
+            bool: True if the cluster is likely a flat plane (e.g., road surface).
+        """
+        points_3d = np.column_stack((self.rpc_frame.x[mask], self.rpc_frame.y[mask], self.rpc_frame.z[mask]))
+        if points_3d.shape[0] < 3:
+            return False # Not enough points to define a plane
+
+        # Perform PCA using Singular Value Decomposition (SVD)
+        _, s, _ = np.linalg.svd(points_3d - points_3d.mean(axis=0))
+        
+        # The ratio of the smallest singular value to the largest gives us a measure of flatness.
+        return (s[2] / s[0]) < flatness_threshold
+
     def __call__(self, frame_cluster: FrameCluster) -> tuple[list[RadarObject], FrameCluster, list[int]]:
         unique_labels = np.unique(frame_cluster.labels)
         moving_centroids = []
@@ -168,7 +190,12 @@ class ClusterGating(ProcessingStep):
             if is_too_wide or is_too_long or is_micro_noise:
                 continue
 
-            # --- 4. Success ---
+            # --- 4. "Not-a-Road" Filter (PCA-based) ---
+            # Check if the cluster forms a flat plane, like the road surface.
+            if self.is_flat_plane(mask):
+                continue
+
+            # --- 5. Success ---
             cluster_centroid = (
                 np.mean(self.rpc_frame.x[mask]), 
                 np.mean(self.rpc_frame.y[mask]), 
