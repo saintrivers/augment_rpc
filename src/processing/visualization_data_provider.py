@@ -1,14 +1,16 @@
+import math
 import os
+import csv
 import numpy as np
 from dataclasses import dataclass, asdict
 
 from processing.association import HungarianMatcher, get_compensation_values
-from processing.clustering import RadarObject
+from processing.clustering import BoxDimensions, RadarObject
 from processing.datareader import load_metadata, prepare_experiment_data, load_ego_imu_data
 from processing.groundtruth import GroundTruthReplay
 from pipepine.factory import RpcProcessFactory
 from processing.imu import get_gyro
-from track.track import TrackManager
+from track.track import Track, TrackManager
 
 @dataclass
 class MethodParams:
@@ -40,6 +42,11 @@ class VisualizationDataProvider:
         self.ego_id, self.config = load_metadata(config_path)
         datadir = self.config.sim.datadir
 
+        # Prepare CSV file for centroids output
+        self.centroids_csv_path = os.path.join('centroids_output.csv')
+        with open(self.centroids_csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['frame_idx', 'track_id', 'x', 'y', 'z', 'velocity'])
         self.ego_imu = load_ego_imu_data(f"{datadir}/imu_data.csv", self.ego_id)
         self.rpc_replay = prepare_experiment_data(datadir, self.ego_id)
         self.gt_replay = GroundTruthReplay(os.path.join(datadir, 'vehicle_coordinates.csv'), self.ego_id)
@@ -48,12 +55,14 @@ class VisualizationDataProvider:
         # Initialize the tracker with tunable parameters.
         # A higher process_noise makes the filter adapt more quickly to acceleration.
         self.track_manager = TrackManager(
-            process_noise=1.0, gating_threshold=3.5
+            process_noise=0.5, gating_threshold=1.0
         )
         
         # State for ego-motion compensation
         self.ego_position = np.array([0.0, 0.0]) # x, y
         self.ego_yaw = 0.0 # radians
+
+        self.last_index = 1
         print("Data loaded successfully.")
 
     def get_frame_data(self, frame_idx: int, params: MethodParams):
@@ -98,76 +107,39 @@ class VisualizationDataProvider:
         Processes a frame to get detections and updates the TrackManager.
         Returns a list of RadarObjects derived from the current state of the tracks.
         """
-        # On the first frame, reset state
-        if idx < 1:
-            # Re-initialize to reset state, keeping the same parameters
-            self.track_manager = TrackManager(
-                process_noise=self.track_manager.process_noise,
-                gating_threshold=self.track_manager.gating_threshold
-            )
-            self.ego_position = np.array([0.0, 0.0])
-            self.ego_yaw = 0.0
-
-        # 1. Get current raw detections (in current ego-vehicle frame)
-        moving_centroids_curr, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=idx, **params)
         
-        # 2. Calculate Ego Motion since last frame
-        # We assume a constant time step (dt) of 0.1s (10 Hz)
-        dt = 0.1
-        dx, dy, dtheta = get_compensation_values(
-            dt=dt,
-            point_cloud=processed_frame.point_cloud,
-            ego_gyro=ego_gyro
-        )
+        # handle starting frame with no previous measurement
+        if idx <= 1:
+            centroids_relative, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=1, **params)
+            for x in centroids_relative:
+                x.id = self.last_index
+                self.last_index += 1
+            return centroids_relative, processed_frame, valid_labels
 
-        # 3. Update ego's global pose for the current frame
-        # This must be done *before* compensating the measurements.
-        # We need to rotate the incremental motion (dx, dy) by the *previous* yaw
-        # to get the correct displacement in the global frame.
-        c, s = np.cos(self.ego_yaw), np.sin(self.ego_yaw)
-        self.ego_position[0] += c * dx - s * dy
-        self.ego_position[1] += s * dx + c * dy
-        self.ego_yaw += dtheta
+        centroids_relative, processed_frame, valid_labels  = self.processing_factory.get_processed_frame(idx=idx - 1, **params)
+        for x in centroids_relative:
+            x.id = self.last_index
+            self.last_index += 1
+        # print(centroids_relative[0].centroid)
 
-        # 3. Compensate new measurements to move them into the global frame
-        compensated_measurements = []
-        for obj in moving_centroids_curr:
-            # Start with the measurement in the current ego-frame
-            p_ego = np.array([obj.centroid[0], obj.centroid[1]])
+        measurements = np.array([[obj.centroid[0], obj.centroid[1], obj.velocity] for obj in centroids_relative])
+        self.track_manager.update(measurements=measurements, dt=0.1)
+        
+        centroids_relative = [track_to_centroid(track) for track in self.track_manager.tracks]
 
-            # First, rotate the measurement by the ego's current total yaw
-            c, s = np.cos(self.ego_yaw), np.sin(self.ego_yaw)
-            R = np.array([[c, -s], [s, c]])
-            p_world = R @ p_ego
+        # Write centroids to CSV file
+        with open(self.centroids_csv_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            for obj in centroids_relative:
+                row = [idx, obj.id]
+                row.extend(obj.centroid)
+                row.append(obj.velocity)
+                writer.writerow(row)
 
-            # Then, translate it by the ego's current total position
-            p_world += self.ego_position
+        return centroids_relative, processed_frame, valid_labels
 
-            compensated_measurements.append(np.array([p_world[0], p_world[1], obj.velocity]))
-
-        # 4. Update the tracker with the compensated (global frame) measurements
-        self.track_manager.update(compensated_measurements, dt=dt)
-
-        # 4. Create the final list of RadarObjects from the tracker's state
-        # This is the key step: we are now using the tracker as the source of truth.
-        tracked_objects = []
-        for track in self.track_manager.tracks:
-            # The Kalman state has [px, py, vx, vy]. We take the position.
-            pos_x, pos_y = track.state.x[0], track.state.x[1]
-            
-            # --- Transform Track back to Ego-Centric View for Visualization ---
-            # Translate
-            p_relative = np.array([pos_x, pos_y]) - self.ego_position
-            # Rotate
-            c, s = np.cos(-self.ego_yaw), np.sin(-self.ego_yaw)
-            R_inv = np.array([[c, -s], [s, c]])
-            p_final_ego_view = R_inv @ p_relative
-
-            # Create a minimal RadarObject for visualization in the current ego-frame
-            obj = RadarObject(
-                centroid=(p_final_ego_view[0], p_final_ego_view[1], 0), 
-                velocity=0, size=None, id=track.track_id
-            )
-            tracked_objects.append(obj)
-
-        return tracked_objects, processed_frame, valid_labels
+def track_to_centroid(track: Track) -> RadarObject:
+    centroid = (track.state.x[0], track.state.x[1], 0)
+    vx, vy = track.state.x[2], track.state.x[3]
+    velocity = math.hypot(vx, vy)
+    return RadarObject(centroid, velocity, BoxDimensions(1,1,1), track.track_id)

@@ -16,7 +16,7 @@ class Track:
 
 class TrackManager:
     def __init__(self, process_noise: float = 0.1, gating_threshold: float = 2.0):
-        self.tracks = []
+        self.tracks: list[Track] = []
         self.next_id = 0
         self.max_skipped_frames = 20  # From the paper
         self.process_noise = process_noise

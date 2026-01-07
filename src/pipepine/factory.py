@@ -1,5 +1,5 @@
 from pipepine.core import ProcessingPipeline
-from processing.clustering import ClusterAnalyzer, MdDbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
+from processing.clustering import ClusterGating, MdDbscanClusterer, FrameCluster, PointCloudPreprocessor, RadarObject
 from processing.radarproc import RpcReplay
 
 
@@ -58,9 +58,7 @@ class RpcProcessFactory:
         pipeline = ProcessingPipeline(
             PointCloudPreprocessor(velocity_weight=velocity_weight), # This step is still needed by MdDbscanClusterer
             MdDbscanClusterer(spatial_eps=spatial_eps, velocity_eps=velocity_eps, min_samples=min_samples),
-            ClusterAnalyzer(rpc_frame, noise_velocity_threshold),
-            # --- You can add more steps here! ---
-            # e.g., BoundingBoxCalculator(), ClusterFilter(min_size=3)
+            ClusterGating(rpc_frame, noise_velocity_threshold),
         )
 
         # Run the pipeline and cache the result

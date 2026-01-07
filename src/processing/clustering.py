@@ -106,7 +106,7 @@ class RadarObject:
 
 
 
-class ClusterAnalyzer(ProcessingStep):
+class ClusterGating(ProcessingStep):
     def __init__(self, rpc_frame: RpcFrame, noise_velocity_threshold: float = 0.5):
         self.rpc_frame = rpc_frame
         self.noise_velocity_threshold = noise_velocity_threshold
